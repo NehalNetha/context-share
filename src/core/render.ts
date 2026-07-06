@@ -3,12 +3,22 @@ import { truncate } from "./text.js";
 
 export type RenderMode = "compact" | "full";
 
+/** Render-time filters; nothing is removed from the stored context itself. */
+export type RenderFilters = {
+  /** How many recent messages the compact prompt includes (default 8). */
+  messageCount?: number;
+  /** Include tool activity (commands, edits, tool output) in the conversation. Default true. */
+  includeTools?: boolean;
+  /** Include the "Relevant files" list. Default true. */
+  includeFiles?: boolean;
+};
+
 const COMPACT_LIST_LIMIT = 12;
 const COMPACT_MESSAGE_COUNT = 8;
 const COMPACT_MESSAGE_LENGTH = 1800;
 
 /** Render a saved context as a standalone Markdown document. */
-export function renderMarkdown(context: PortableContext, mode: RenderMode = "compact"): string {
+export function renderMarkdown(context: PortableContext, mode: RenderMode = "compact", filters: RenderFilters = {}): string {
   const full = mode === "full";
   const listLimit = full ? Number.POSITIVE_INFINITY : COMPACT_LIST_LIMIT;
   const lines: string[] = [];
@@ -30,9 +40,11 @@ export function renderMarkdown(context: PortableContext, mode: RenderMode = "com
   lines.push("");
   appendList(lines, "Decisions", context.decisions, listLimit);
   appendList(lines, "Open Tasks", context.openTasks, listLimit);
-  appendList(lines, "Relevant Files", context.filesMentioned, listLimit);
+  if (filters.includeFiles !== false) {
+    appendList(lines, "Relevant Files", context.filesMentioned, listLimit);
+  }
   appendList(lines, "Recent Commands", context.commands, listLimit);
-  appendMessages(lines, context, full);
+  appendMessages(lines, filterMessages(context, filters), full);
   appendList(lines, "Raw References", context.rawRefs, listLimit);
   appendRedactions(lines, context);
 
@@ -40,7 +52,8 @@ export function renderMarkdown(context: PortableContext, mode: RenderMode = "com
 }
 
 /** Render the compact handoff prompt used when injecting a context into another assistant. */
-export function renderInjectionPrompt(context: PortableContext, messageCount = COMPACT_MESSAGE_COUNT): string {
+export function renderInjectionPrompt(context: PortableContext, filters: RenderFilters = {}): string {
+  const messages = filterMessages(context, filters);
   return [
     "You are continuing work from an exported AI coding session.",
     "",
@@ -57,14 +70,12 @@ export function renderInjectionPrompt(context: PortableContext, messageCount = C
     "Open tasks:",
     renderPlainList(context.openTasks),
     "",
-    "Relevant files:",
-    renderPlainList(context.filesMentioned),
-    "",
+    ...(filters.includeFiles !== false ? ["Relevant files:", renderPlainList(context.filesMentioned), ""] : []),
     "Recent commands:",
     renderPlainList(context.commands),
     "",
     "Recent conversation:",
-    renderRecentConversation(context, messageCount),
+    renderRecentConversation(messages, filters.messageCount ?? COMPACT_MESSAGE_COUNT),
     "",
     "Continue from this context and ask only if required."
   ]
@@ -73,8 +84,15 @@ export function renderInjectionPrompt(context: PortableContext, messageCount = C
 }
 
 /** Render whichever representation fits the requested mode for sending to a destination. */
-export function renderForSend(context: PortableContext, mode: RenderMode, messageCount?: number): string {
-  return mode === "full" ? renderMarkdown(context, "full") : renderInjectionPrompt(context, messageCount);
+export function renderForSend(context: PortableContext, mode: RenderMode, filters: RenderFilters = {}): string {
+  return mode === "full" ? renderMarkdown(context, "full", filters) : renderInjectionPrompt(context, filters);
+}
+
+function filterMessages(context: PortableContext, filters: RenderFilters): PortableContext["messages"] {
+  if (filters.includeTools === false) {
+    return context.messages.filter((message) => message.role !== "tool");
+  }
+  return context.messages;
 }
 
 function appendList(lines: string[], title: string, items: string[], limit: number): void {
@@ -89,13 +107,13 @@ function appendList(lines: string[], title: string, items: string[], limit: numb
   lines.push("");
 }
 
-function appendMessages(lines: string[], context: PortableContext, full: boolean): void {
-  if (context.messages.length === 0) {
+function appendMessages(lines: string[], allMessages: PortableContext["messages"], full: boolean): void {
+  if (allMessages.length === 0) {
     return;
   }
   lines.push(full ? "## Full Conversation" : "## Recent Conversation");
   lines.push("");
-  const messages = full ? context.messages : context.messages.slice(-COMPACT_MESSAGE_COUNT);
+  const messages = full ? allMessages : allMessages.slice(-COMPACT_MESSAGE_COUNT);
   for (const message of messages) {
     lines.push(`### ${message.role}${message.timestamp ? ` (${message.timestamp})` : ""}`);
     lines.push("");
@@ -126,11 +144,11 @@ function renderPlainList(items: string[]): string {
     .join("\n");
 }
 
-function renderRecentConversation(context: PortableContext, messageCount = COMPACT_MESSAGE_COUNT): string {
-  if (context.messages.length === 0) {
+function renderRecentConversation(messages: PortableContext["messages"], messageCount: number): string {
+  if (messages.length === 0) {
     return "- None captured.";
   }
-  return context.messages
+  return messages
     .slice(-messageCount)
     .map((message) => `- ${message.role}: ${truncate(message.text.replace(/\s+/g, " "), 500)}`)
     .join("\n");

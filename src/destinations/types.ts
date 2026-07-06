@@ -1,10 +1,9 @@
-import type { RenderMode } from "../core/render.js";
+import type { RenderFilters, RenderMode } from "../core/render.js";
 import type { PortableContext } from "../core/schema.js";
 
 export type SendOptions = {
   mode: RenderMode;
-  /** How many recent messages the compact prompt includes (default 8). */
-  messageCount?: number;
+  filters?: RenderFilters;
 };
 
 export type SendResult = {

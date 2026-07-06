@@ -18,6 +18,31 @@ export async function select<T>(message: string, choices: Choice<T>[]): Promise<
   return answer.value as T;
 }
 
+export async function askNumber(message: string, initial: number): Promise<number> {
+  const answer = await prompts(
+    { type: "number", name: "value", message, initial, min: 1 },
+    { onCancel: () => { throw new UserError("Cancelled."); } }
+  );
+  return answer.value as number;
+}
+
+type ToggleChoice<T> = Choice<T> & { selected?: boolean };
+
+export async function multiselect<T>(message: string, choices: ToggleChoice<T>[]): Promise<T[]> {
+  const answer = await prompts(
+    {
+      type: "multiselect",
+      name: "value",
+      message,
+      choices,
+      instructions: false,
+      hint: "space to toggle · enter to confirm"
+    },
+    { onCancel: () => { throw new UserError("Cancelled."); } }
+  );
+  return (answer.value ?? []) as T[];
+}
+
 export function success(message: string): void {
   console.log(pc.green(message));
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import type { Command as CommanderCommand } from "commander";
 import {
+  configCommand,
   deleteCommand,
   doctorCommand,
   exportCommand,
@@ -20,7 +22,7 @@ const program = new Command();
 program
   .name("ctx")
   .description("Share AI coding context between Codex and Claude Code.")
-  .version("0.3.0");
+  .version("0.4.0");
 
 program
   .command("share", { isDefault: true })
@@ -35,20 +37,23 @@ program
   .option("--file <path>", "file path when exporting from a file")
   .action(wrap(exportCommand));
 
-program
-  .command("send [destination] [id]")
-  .description("Send a saved context to claude, codex, clipboard, or stdout")
-  .option("--last", "send the most recent saved context")
-  .option("--full", "send the full transcript instead of the compact handoff prompt")
-  .option("--messages <n>", "number of recent messages in the compact prompt (default 8)")
-  .action(wrap(sendCommand));
+withContentOptions(
+  program
+    .command("send [destination] [id]")
+    .description("Send a saved context to claude, codex, clipboard, or stdout")
+    .option("--last", "send the most recent saved context")
+).action(wrap(sendCommand));
+
+withContentOptions(
+  program
+    .command("handoff <from> <to>")
+    .description("Export the latest session from one tool and send it to another (e.g. ctx handoff codex claude)")
+).action(wrap(handoffCommand));
 
 program
-  .command("handoff <from> <to>")
-  .description("Export the latest session from one tool and send it to another (e.g. ctx handoff codex claude)")
-  .option("--full", "send the full transcript instead of the compact handoff prompt")
-  .option("--messages <n>", "number of recent messages in the compact prompt (default 8)")
-  .action(wrap(handoffCommand));
+  .command("config [key] [value]")
+  .description("Open the interactive settings list (enter toggles a setting)")
+  .action(wrap(configCommand));
 
 program
   .command("search <term>")
@@ -65,13 +70,12 @@ program
   .description("Print a saved context's Markdown (use an ID prefix or 'last')")
   .action(wrap(showCommand));
 
-program
-  .command("render [id]")
-  .description("Render a saved context to stdout")
-  .option("--last", "render the most recent saved context")
-  .option("--full", "render the full transcript")
-  .option("--messages <n>", "number of recent messages in the compact prompt (default 8)")
-  .action(wrap(renderCommand));
+withContentOptions(
+  program
+    .command("render [id]")
+    .description("Render a saved context to stdout")
+    .option("--last", "render the most recent saved context")
+).action(wrap(renderCommand));
 
 program
   .command("delete <id>")
@@ -84,6 +88,17 @@ program
   .action(wrap(doctorCommand));
 
 program.parseAsync(process.argv);
+
+/** Options shared by every command that renders context content. */
+function withContentOptions(command: CommanderCommand): CommanderCommand {
+  return command
+    .option("--full", "send the full transcript instead of the compact handoff prompt")
+    .option("--messages <n>", "number of recent messages in the compact prompt (default 8)")
+    .option("--tools", "include tool activity (overrides saved setting)")
+    .option("--no-tools", "exclude tool activity")
+    .option("--files", "include the relevant-files list (overrides saved setting)")
+    .option("--no-files", "exclude the relevant-files list");
+}
 
 function wrap<Args extends unknown[]>(fn: (...args: Args) => Promise<void>): (...args: Args) => Promise<void> {
   return async (...args: Args) => {

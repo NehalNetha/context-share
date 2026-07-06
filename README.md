@@ -47,15 +47,35 @@ ctx send clipboard --last
 | `ctx show <id>` | Print a saved context's Markdown (`last` works too) |
 | `ctx render [id]` | Render the handoff prompt to stdout (`--full` for the whole transcript) |
 | `ctx delete <id>` | Delete a saved context |
+| `ctx config` | Interactive settings list (enter toggles) |
 | `ctx doctor` | Check which sources and destinations are available |
 
-Useful flags:
+Useful flags (on `send`, `handoff`, and `render`):
 
 - `--last` — skip pickers and use the most recent session/context.
 - `--full` — send the entire transcript instead of the compact handoff prompt.
 - `--messages <n>` — how many recent messages the compact prompt includes (default 8).
+- `--tools` / `--no-tools` — include or exclude tool activity (commands, edits, tool output).
+- `--files` / `--no-files` — include or exclude the relevant-files list.
 
 Every export and send prints a rough token estimate (~4 characters per token) so you know what you're about to inject.
+
+## Saved settings
+
+`ctx config` opens an interactive list — press enter on a setting to toggle it:
+
+```
+? Settings — enter to change
+❯   Tool activity      on
+    Files list         on
+    Compact messages   8
+    Reset to defaults
+    Done
+```
+
+The interactive `ctx` flow also has an "Include" step — tools and files pre-checked from your saved settings, space to toggle for that one share. For scripts, `ctx config tools off`, `ctx config messages 20`, and `ctx config reset` still work non-interactively.
+
+Precedence: explicit flag > saved setting > built-in default. So with `tools off` saved, `ctx send claude --last --tools` still includes tools for that one send. Filters apply at send/render time only — the stored export always keeps everything.
 
 ## What gets shared
 

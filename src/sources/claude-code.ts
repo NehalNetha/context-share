@@ -117,10 +117,7 @@ async function parseSession(filePath: string, maxLines?: number): Promise<Parsed
     updatedAt = timestamp || updatedAt;
     workspace ||= stringValue(entry.cwd);
 
-    const message = extractMessage(entry, timestamp);
-    if (message) {
-      messages.push(message);
-    }
+    messages.push(...extractMessages(entry, timestamp));
   }
 
   const stat = await fs.stat(filePath);
@@ -136,33 +133,53 @@ async function parseSession(filePath: string, maxLines?: number): Promise<Parsed
   };
 }
 
-function extractMessage(entry: Record<string, unknown>, timestamp?: string): PortableMessage | undefined {
+/**
+ * Split one transcript entry into portable messages. Tool activity (tool_use /
+ * tool_result parts) becomes separate role:"tool" messages so it can be
+ * filtered out at render time.
+ */
+function extractMessages(entry: Record<string, unknown>, timestamp?: string): PortableMessage[] {
   const type = stringValue(entry.type);
   if (type !== "user" && type !== "assistant" && type !== "system") {
-    return undefined;
+    return [];
   }
 
   const rawMessage = typeof entry.message === "object" && entry.message ? (entry.message as Record<string, unknown>) : entry;
-  const text = extractText(rawMessage);
-  if (!text.trim()) {
-    return undefined;
+  const role = normalizeRole(rawMessage.role || type);
+
+  if (!Array.isArray(rawMessage.content)) {
+    const text = typeof rawMessage.content === "string"
+      ? rawMessage.content
+      : stringValue(rawMessage.text) || stringValue(rawMessage.summary) || "";
+    return text.trim() ? [{ role, text: text.trim(), timestamp }] : [];
   }
 
-  return {
-    role: normalizeRole(rawMessage.role || type),
-    text: text.trim(),
-    timestamp
+  const messages: PortableMessage[] = [];
+  let textBuffer: string[] = [];
+  const flushText = () => {
+    const text = textBuffer.join("\n").trim();
+    if (text) {
+      messages.push({ role, text, timestamp });
+    }
+    textBuffer = [];
   };
-}
 
-function extractText(raw: Record<string, unknown>): string {
-  if (typeof raw.content === "string") {
-    return raw.content;
+  for (const part of rawMessage.content) {
+    const partType = part && typeof part === "object" ? stringValue((part as Record<string, unknown>).type) : undefined;
+    const text = extractContentPart(part);
+    if (!text) {
+      continue;
+    }
+    if (partType === "tool_use" || partType === "tool_result") {
+      flushText();
+      messages.push({ role: "tool", text, timestamp });
+    } else {
+      textBuffer.push(text);
+    }
   }
-  if (Array.isArray(raw.content)) {
-    return raw.content.map(extractContentPart).filter(Boolean).join("\n");
-  }
-  return stringValue(raw.text) || stringValue(raw.summary) || "";
+  flushText();
+
+  return messages;
 }
 
 /** Keep tool substance in exports without letting one huge diff or log dominate the transcript. */

@@ -17,7 +17,7 @@ export const claudeCliDestination: ContextDestination = {
   },
 
   async send(context, options): Promise<SendResult> {
-    const rendered = renderForSend(context, options.mode, options.messageCount);
+    const rendered = renderForSend(context, options.mode, options.filters);
     const { cwd, note } = await resolveLaunchCwd(context);
     const messages = note ? [note] : [];
 

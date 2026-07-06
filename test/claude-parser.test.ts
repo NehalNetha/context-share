@@ -50,6 +50,7 @@ const entries = [
 describe("claude-code parser tool substance", () => {
   let dir: string;
   let corpus: string;
+  let roles: string[];
 
   beforeAll(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "ctx-claude-test-"));
@@ -57,6 +58,7 @@ describe("claude-code parser tool substance", () => {
     await fs.writeFile(file, entries.map((entry) => JSON.stringify(entry)).join("\n"), "utf8");
     const context = await claudeCodeSource.exportSession(file);
     corpus = context.messages.map((message) => message.text).join("\n");
+    roles = context.messages.map((message) => message.role);
   });
 
   afterAll(async () => {
@@ -78,5 +80,10 @@ describe("claude-code parser tool substance", () => {
 
   it("keeps tool result text from structured content", () => {
     expect(corpus).toContain("2 tests failed: auth.spec.ts");
+  });
+
+  it("marks tool activity with the tool role so it can be filtered", () => {
+    // user text, assistant text, Bash use, tool result, Edit use, Read use
+    expect(roles).toEqual(["user", "assistant", "tool", "tool", "tool", "tool"]);
   });
 });

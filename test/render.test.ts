@@ -11,10 +11,13 @@ const context: PortableContext = {
   workspace: "/tmp/project",
   goal: "Fix the login bug",
   summary: "We are fixing a login bug.",
-  messages: Array.from({ length: 12 }, (_, i) => ({
-    role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
-    text: `Message ${i}`
-  })),
+  messages: [
+    ...Array.from({ length: 12 }, (_, i) => ({
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `Message ${i}`
+    })),
+    { role: "tool" as const, text: "Tool use: Bash — npm test" }
+  ],
   filesMentioned: ["src/auth.ts"],
   commands: ["npm test"],
   decisions: ["decided to use JWT"],
@@ -53,17 +56,36 @@ describe("renderInjectionPrompt", () => {
 
   it("defaults to the last 8 messages", () => {
     const prompt = renderInjectionPrompt(context);
-    expect(prompt).not.toContain("Message 3");
-    expect(prompt).toContain("Message 4");
+    expect(prompt).not.toContain("Message 4");
+    expect(prompt).toContain("Message 5");
   });
 
   it("honors a custom message count", () => {
-    const prompt = renderInjectionPrompt(context, 2);
-    expect(prompt).not.toContain("Message 9");
-    expect(prompt).toContain("Message 10");
+    const prompt = renderInjectionPrompt(context, { messageCount: 2 });
+    expect(prompt).not.toContain("Message 10");
+    expect(prompt).toContain("Message 11");
+    expect(prompt).toContain("Tool use: Bash");
+
+    const all = renderInjectionPrompt(context, { messageCount: 100 });
+    expect(all).toContain("Message 0");
+  });
+
+  it("excludes tool messages when includeTools is false", () => {
+    const prompt = renderInjectionPrompt(context, { includeTools: false });
+    expect(prompt).not.toContain("Tool use: Bash");
     expect(prompt).toContain("Message 11");
 
-    const all = renderInjectionPrompt(context, 100);
-    expect(all).toContain("Message 0");
+    const full = renderMarkdown(context, "full", { includeTools: false });
+    expect(full).not.toContain("Tool use: Bash");
+    expect(full).toContain("Message 0");
+  });
+
+  it("excludes the files list when includeFiles is false", () => {
+    const prompt = renderInjectionPrompt(context, { includeFiles: false });
+    expect(prompt).not.toContain("Relevant files:");
+    expect(prompt).not.toContain("src/auth.ts");
+
+    const full = renderMarkdown(context, "full", { includeFiles: false });
+    expect(full).not.toContain("## Relevant Files");
   });
 });

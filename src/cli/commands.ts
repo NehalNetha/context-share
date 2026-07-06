@@ -1,7 +1,9 @@
 import pc from "picocolors";
+import type { Command } from "commander";
+import { CONFIG_DEFAULTS, configPath, readConfig, setConfigValue, toggleConfigValue, writeConfig } from "../core/config.js";
 import { UserError } from "../core/errors.js";
 import type { PortableContext } from "../core/schema.js";
-import { renderForSend, type RenderMode } from "../core/render.js";
+import { renderForSend, type RenderFilters, type RenderMode } from "../core/render.js";
 import { deleteContext, loadContext, readIndex, readMarkdown, storeRoot } from "../core/store.js";
 import { estimateTokens, formatTokens, preview } from "../core/text.js";
 import fs from "fs-extra";
@@ -10,7 +12,7 @@ import type { ContextDestination } from "../destinations/types.js";
 import { findSource, sources } from "../sources/index.js";
 import { exportFile, exportStdin } from "../sources/text.js";
 import { pickAndExportSession, pickDestination, pickSavedContextId, saveAndReport } from "./pickers.js";
-import { formatWhen, info, isInteractive, printSendResult, select, success } from "./ui.js";
+import { askNumber, formatWhen, info, isInteractive, multiselect, printSendResult, select, success } from "./ui.js";
 
 export type ExportOptions = {
   from?: string;
@@ -60,45 +62,126 @@ export async function showCommand(id: string): Promise<void> {
   process.stdout.write(await readMarkdown(id));
 }
 
-export type RenderOptions = {
-  last?: boolean;
+export type ContentOptions = {
   full?: boolean;
   messages?: string;
+  tools?: boolean;
+  files?: boolean;
 };
 
-export async function renderCommand(id: string | undefined, options: RenderOptions): Promise<void> {
+export type RenderOptions = ContentOptions & {
+  last?: boolean;
+};
+
+export async function renderCommand(id: string | undefined, options: RenderOptions, command: Command): Promise<void> {
   const context = await loadContext(options.last ? "last" : id || "last");
-  const rendered = renderForSend(context, options.full ? "full" : "compact", parseMessageCount(options.messages));
+  const rendered = renderForSend(context, options.full ? "full" : "compact", await resolveFilters(options, command));
   process.stdout.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
 }
 
-export type SendCommandOptions = {
+export type SendCommandOptions = ContentOptions & {
   last?: boolean;
-  full?: boolean;
-  messages?: string;
 };
 
 export async function sendCommand(
   destinationArg: string | undefined,
   idArg: string | undefined,
-  options: SendCommandOptions
+  options: SendCommandOptions,
+  command: Command
 ): Promise<void> {
   const context = await loadContext(resolveContextRef(idArg, options.last) ?? (isInteractive() ? await pickSavedContextId() : "last"));
   const destination = destinationArg ? findDestination(destinationArg) : await requireInteractiveDestination();
-  await sendWithTokenReport(destination, context, options.full ? "full" : "compact", parseMessageCount(options.messages));
+  await sendWithTokenReport(destination, context, options.full ? "full" : "compact", await resolveFilters(options, command));
 }
 
-export type HandoffOptions = {
-  full?: boolean;
-  messages?: string;
-};
-
 /** Export the latest session from one tool and send it straight to another. */
-export async function handoffCommand(fromArg: string, toArg: string, options: HandoffOptions): Promise<void> {
+export async function handoffCommand(fromArg: string, toArg: string, options: ContentOptions, command: Command): Promise<void> {
   const source = findSource(fromArg);
   const destination = findDestination(toArg);
   const context = await saveAndReport(await source.exportLatest());
-  await sendWithTokenReport(destination, context, options.full ? "full" : "compact", parseMessageCount(options.messages));
+  await sendWithTokenReport(destination, context, options.full ? "full" : "compact", await resolveFilters(options, command));
+}
+
+export async function configCommand(key: string | undefined, value: string | undefined): Promise<void> {
+  // Scripting escape hatch: `ctx config tools off`, `ctx config messages 20`, `ctx config reset`.
+  if (key === "reset") {
+    await writeConfig({});
+    success("Reset all settings to defaults.");
+    return;
+  }
+  if (key && value !== undefined) {
+    await setConfigValue(key, value);
+    success(`Set ${key} = ${value}.`);
+    return;
+  }
+  if (key === "tools" || key === "files") {
+    const next = await toggleConfigValue(key);
+    success(`${key} is now ${next ? "on" : "off"}.`);
+    return;
+  }
+  if (key) {
+    throw new UserError(`Unknown setting "${key}".`, "Available settings: tools, files, messages.");
+  }
+
+  if (!isInteractive()) {
+    printSettings(await readConfig());
+    return;
+  }
+
+  await interactiveConfig();
+}
+
+async function interactiveConfig(): Promise<void> {
+  for (;;) {
+    const config = await readConfig();
+    const tools = config.tools ?? CONFIG_DEFAULTS.tools;
+    const files = config.files ?? CONFIG_DEFAULTS.files;
+    const messages = config.messages ?? CONFIG_DEFAULTS.messages;
+
+    let choice: "tools" | "files" | "messages" | "reset" | "done";
+    try {
+      choice = await select("Settings — enter to change", [
+        { title: `Tool activity      ${onOff(tools)}`, value: "tools", description: "commands, edits, tool output in sent contexts" },
+        { title: `Files list         ${onOff(files)}`, value: "files", description: "the relevant-files section in sent contexts" },
+        { title: `Compact messages   ${pc.bold(String(messages))}`, value: "messages", description: "recent messages in the compact prompt" },
+        { title: "Reset to defaults", value: "reset" },
+        { title: "Done", value: "done" }
+      ]);
+    } catch {
+      return; // esc/ctrl-c just closes the list
+    }
+
+    if (choice === "done") {
+      return;
+    }
+    if (choice === "reset") {
+      await writeConfig({});
+      continue;
+    }
+    if (choice === "messages") {
+      try {
+        const next = await askNumber("Recent messages in the compact prompt", messages);
+        if (Number.isInteger(next) && next >= 1) {
+          await setConfigValue("messages", String(next));
+        }
+      } catch {
+        // cancelled — keep current value
+      }
+      continue;
+    }
+    await toggleConfigValue(choice);
+  }
+}
+
+function onOff(value: boolean): string {
+  return value ? pc.green("on ") : pc.red("off");
+}
+
+function printSettings(config: Awaited<ReturnType<typeof readConfig>>): void {
+  info(pc.bold("Settings") + pc.dim(`  (${configPath()})`));
+  printSetting("tools", config.tools, CONFIG_DEFAULTS.tools, "include tool activity in sent contexts");
+  printSetting("files", config.files, CONFIG_DEFAULTS.files, "include the relevant-files list");
+  printSetting("messages", config.messages, CONFIG_DEFAULTS.messages, "recent messages in the compact prompt");
 }
 
 export async function searchCommand(term: string): Promise<void> {
@@ -165,7 +248,17 @@ export async function shareCommand(): Promise<void> {
     { title: "Full (entire transcript)", value: "full" }
   ]);
 
-  await sendWithTokenReport(destination, context, mode);
+  const config = await readConfig();
+  const include = await multiselect<"tools" | "files">("Include", [
+    { title: "Tool activity (commands, edits, output)", value: "tools", selected: config.tools ?? CONFIG_DEFAULTS.tools },
+    { title: "Relevant files list", value: "files", selected: config.files ?? CONFIG_DEFAULTS.files }
+  ]);
+
+  await sendWithTokenReport(destination, context, mode, {
+    includeTools: include.includes("tools"),
+    includeFiles: include.includes("files"),
+    messageCount: config.messages
+  });
 }
 
 export async function doctorCommand(): Promise<void> {
@@ -200,12 +293,28 @@ async function sendWithTokenReport(
   destination: ContextDestination,
   context: PortableContext,
   mode: RenderMode,
-  messageCount?: number
+  filters: RenderFilters = {}
 ): Promise<void> {
-  const tokens = estimateTokens(renderForSend(context, mode, messageCount));
-  info(`Sending ~${formatTokens(tokens)} tokens (${mode}) to ${destination.label}.`);
-  const result = await destination.send(context, { mode, messageCount });
+  const tokens = estimateTokens(renderForSend(context, mode, filters));
+  const omitted = [filters.includeTools === false ? "tools" : "", filters.includeFiles === false ? "files" : ""]
+    .filter(Boolean)
+    .join(", ");
+  info(`Sending ~${formatTokens(tokens)} tokens (${mode}${omitted ? `, without ${omitted}` : ""}) to ${destination.label}.`);
+  const result = await destination.send(context, { mode, filters });
   printSendResult(result);
+}
+
+/** Resolve content filters: explicit CLI flag > saved config > default. */
+async function resolveFilters(options: ContentOptions, command: Command): Promise<RenderFilters> {
+  const config = await readConfig();
+  const fromFlag = (name: "tools" | "files"): boolean | undefined =>
+    command.getOptionValueSource(name) === "cli" ? options[name] : undefined;
+
+  return {
+    includeTools: fromFlag("tools") ?? config.tools,
+    includeFiles: fromFlag("files") ?? config.files,
+    messageCount: parseMessageCount(options.messages) ?? config.messages
+  };
 }
 
 function parseMessageCount(value: string | undefined): number | undefined {
@@ -218,6 +327,14 @@ function parseMessageCount(value: string | undefined): number | undefined {
   }
   return parsed;
 }
+
+function printSetting(name: string, saved: boolean | number | undefined, fallback: boolean | number, description: string): void {
+  const value = saved ?? fallback;
+  const display = typeof value === "boolean" ? (value ? "on" : "off") : String(value);
+  const origin = saved === undefined ? pc.dim(" (default)") : "";
+  info(`  ${name.padEnd(8)} ${pc.bold(display)}${origin}  ${pc.dim(description)}`);
+}
+
 
 function resolveContextRef(idArg: string | undefined, last: boolean | undefined): string | undefined {
   if (idArg) {
