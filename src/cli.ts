@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name("ctx")
   .description("Share AI coding context between Codex and Claude Code.")
-  .version("0.4.0");
+  .version("0.5.0");
 
 program
   .command("share", { isDefault: true })
@@ -31,8 +31,8 @@ program
 
 program
   .command("export [source]")
-  .description("Export a session from codex, claude, file, or stdin into the local store")
-  .option("--from <source>", "source: codex, claude, file, or stdin")
+  .description("Export a session from codex, claude, opencode, pi, file, or stdin into the local store")
+  .option("--from <source>", "source: codex, claude, opencode, pi, file, or stdin")
   .option("--last", "export the most recent session without prompting")
   .option("--file <path>", "file path when exporting from a file")
   .action(wrap(exportCommand));
@@ -40,7 +40,7 @@ program
 withContentOptions(
   program
     .command("send [destination] [id]")
-    .description("Send a saved context to claude, codex, clipboard, or stdout")
+    .description("Send a saved context to claude, codex, opencode, pi, clipboard, or stdout")
     .option("--last", "send the most recent saved context")
 ).action(wrap(sendCommand));
 

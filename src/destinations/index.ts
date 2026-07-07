@@ -2,11 +2,15 @@ import { UserError } from "../core/errors.js";
 import { claudeCliDestination } from "./claude-cli.js";
 import { clipboardDestination, stdoutDestination } from "./clipboard.js";
 import { codexCliDestination } from "./codex-cli.js";
+import { opencodeCliDestination } from "./opencode-cli.js";
+import { piCliDestination } from "./pi-cli.js";
 import type { ContextDestination } from "./types.js";
 
 export const destinations: ContextDestination[] = [
   claudeCliDestination,
   codexCliDestination,
+  opencodeCliDestination,
+  piCliDestination,
   clipboardDestination,
   stdoutDestination
 ];

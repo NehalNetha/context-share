@@ -2,14 +2,15 @@
 
 **Move a conversation from one AI coding assistant to another.**
 
-You're deep into a session with Codex and want to continue in Claude Code (or the other way around)? `ctx` exports the conversation — what you asked, what the AI did, which files it touched, which commands it ran — and hands it to the other assistant so you can pick up right where you left off.
+You're deep into a session with Codex and want to continue in Claude Code (or OpenCode, or Pi, or the other way around)? `ctx` exports the conversation — what you asked, what the AI did, which files it touched, which commands it ran — and hands it to the other assistant so you can pick up right where you left off.
 
 ```
-codex ──┐                        ┌── claude (CLI)
-        │   ctx export           │   codex (CLI)
-claude ─┼───────────► ~/.ctxstore├── clipboard  → paste into any desktop app
-file ───┤   ctx send             │   stdout
-stdin ──┘                        └──
+codex ────┐                        ┌── claude
+claude ───┤   ctx export           ├── codex
+opencode ─┼───────────► ~/.ctxstore├── opencode
+pi ───────┤   ctx send             ├── pi
+file ─────┤                        ├── clipboard → any desktop app
+stdin ────┘                        └── stdout
 ```
 
 ## Install
@@ -28,10 +29,12 @@ ctx handoff codex claude
 
 That's it. Your latest Codex session is exported, saved, and Claude Code launches with the context — in the same project folder the session was about.
 
-Other directions:
+Other directions — any source to any destination:
 
 ```bash
 ctx handoff claude codex        # Claude Code session → Codex
+ctx handoff opencode claude     # OpenCode session → Claude Code
+ctx handoff pi opencode         # Pi session → OpenCode
 ctx handoff claude clipboard    # → clipboard, then Cmd+V into any desktop app
 ```
 
@@ -74,8 +77,8 @@ ctx handoff codex claude --messages 20   # compact, but with the last 20 message
 | --- | --- |
 | `ctx` | Interactive: pick session → destination → size → includes |
 | `ctx handoff <from> <to>` | Latest session from one tool straight to another |
-| `ctx export <source>` | Save a session locally (`codex`, `claude`, `file`, `stdin`) |
-| `ctx send <dest> [id]` | Send a saved context (`claude`, `codex`, `clipboard`, `stdout`) |
+| `ctx export <source>` | Save a session locally (`codex`, `claude`, `opencode`, `pi`, `file`, `stdin`) |
+| `ctx send <dest> [id]` | Send a saved context (`claude`, `codex`, `opencode`, `pi`, `clipboard`, `stdout`) |
 | `ctx list` | List saved contexts |
 | `ctx search <term>` | Search saved contexts |
 | `ctx show <id>` | Print a saved context's Markdown |

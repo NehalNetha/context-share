@@ -11,7 +11,7 @@ export const redactionSchema = z.object({
   count: z.number().int().nonnegative()
 });
 
-export const sourceKindSchema = z.enum(["codex", "claude-code", "file", "stdin"]);
+export const sourceKindSchema = z.enum(["codex", "claude-code", "opencode", "pi", "file", "stdin"]);
 
 export const portableContextSchema = z.object({
   id: z.string(),
